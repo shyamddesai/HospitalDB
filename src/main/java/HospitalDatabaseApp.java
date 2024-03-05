@@ -12,21 +12,18 @@ public class HospitalDatabaseApp {
         String USER = "cs421g46";
         String PASS = "group46slay!";
 
-        try {
-            DriverManager.registerDriver(new COM.ibm.db2.jdbc.net.DB2Driver());
-        } catch (Exception e) {
-            System.out.println("Class Not Found");
-        }
+        try { DriverManager.registerDriver ( new com.ibm.db2.jcc.DB2Driver() ) ; }
+        catch (Exception cnfe){ System.out.println("Class not found"); }
 
-        try {
-            conn = DriverManager.getConnection(DB_URL, USER, PASS);
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
+        conn = DriverManager.getConnection(DB_URL, USER, PASS);
     }
 
     public static void main(String[] args) {
-        connectToDatabase();
+        try {
+			connectToDatabase();
+		} catch (SQLException e) {
+            e.printStackTrace();
+        }
 
         int option;
         while (!exit) {
