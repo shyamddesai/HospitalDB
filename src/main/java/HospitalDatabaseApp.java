@@ -12,16 +12,19 @@ public class HospitalDatabaseApp {
         String USER = "cs421g46";
         String PASS = "group46slay!";
 
-        try { DriverManager.registerDriver ( new com.ibm.db2.jcc.DB2Driver() ) ; }
-        catch (Exception cnfe){ System.out.println("Class not found"); }
+        try {
+            DriverManager.registerDriver(new com.ibm.db2.jcc.DB2Driver());
+        } catch (Exception cnfe) {
+            System.out.println("Class not found");
+        }
 
         conn = DriverManager.getConnection(DB_URL, USER, PASS);
     }
 
     public static void main(String[] args) {
         try {
-			connectToDatabase();
-		} catch (SQLException e) {
+            connectToDatabase();
+        } catch (SQLException e) {
             e.printStackTrace();
         }
 
@@ -30,12 +33,9 @@ public class HospitalDatabaseApp {
             System.out.println("\n======== Hospital Menu ========");
             System.out.println("1. View Patient Prescriptions");
             System.out.println("2. View Hospital Equipment and Staff");
-            System.out.println("3.  ");
-            System.out.println("4. View Equipment Inventory");
-            System.out.println("5. Add New Equipment");
-            System.out.println("6. Schedule an Appointment");
-            System.out.println("7. Cancel an Appointment");
-            System.out.println("8. Update Patient Records");
+            System.out.println("3. View Patient Appointments");
+            System.out.println("4. Schedule an Appointment");
+            System.out.println("5. Remove an Equipment");
             System.out.println("0. Quit");
             System.out.print("Please Enter Your Option: ");
 
@@ -49,21 +49,13 @@ public class HospitalDatabaseApp {
                     viewHospitalEquipmentAndStaff(conn);
                     break;
                 case 3:
+                    viewPatientAppointmentDetails(conn);
                     break;
                 case 4:
-                    viewEquipmentInventory(conn);
+                    scheduleAppointment(conn);
                     break;
                 case 5:
-                    addNewEquipment(conn, scanner);
-                    break;
-                case 6:
-                    scheduleAppointment(conn, scanner);
-                    break;
-                case 7:
-                    cancelAppointment(conn, scanner);
-                    break;
-                case 8:
-                    updatePatientRecords(conn, scanner);
+                    removeEquipment(conn);
                     break;
                 case 0:
                     System.out.println("Exiting the program...");
@@ -173,23 +165,121 @@ public class HospitalDatabaseApp {
         }
     }
 
-    private static void viewEquipmentInventory(Connection conn) {
-        // Implementation of viewing equipment inventory
+    private static void viewPatientAppointmentDetails(Connection conn) {
+        String query = "WITH AppointmentEquipment AS ( "
+                + "SELECT a.phealthcare_No, a.adate, a.atime, c.equipment_type "
+                + "FROM appointment a "
+                + "JOIN conduct c "
+                + "ON a.phealthcare_No = c.phealthcare_No "
+                + "AND a.adate = c.adate "
+                + "AND a.atime = c.atime "
+                + "), "
+                + "PatientAppointments AS ( "
+                + "SELECT "
+                + "pat.pname AS PatientName, "
+                + "a.adate, "
+                + "a.atime, "
+                + "pat.employee_No AS DoctorEmployeeNumber, "
+                + "per.department, "
+                + "ae.equipment_type "
+                + "FROM appointment a "
+                + "JOIN patient pat ON a.phealthcare_No = pat.phealthcare_No "
+                + "JOIN AppointmentEquipment ae "
+                + "ON a.phealthcare_No = ae.phealthcare_No "
+                + "AND a.adate = ae.adate "
+                + "AND a.atime = ae.atime "
+                + "JOIN personnel per ON pat.employee_No = per.employee_No "
+                + ") "
+                + "SELECT "
+                + "pa.PatientName AS Patient, "
+                + "pa.adate AS \"Appointment Date\", "
+                + "pa.atime AS \"Appointment Time\", "
+                + "pa.DoctorEmployeeNumber AS Doctor, "
+                + "pa.department AS \"Doctor's Department\", "
+                + "pa.equipment_type AS \"Required Equipment\" "
+                + "FROM PatientAppointments pa "
+                + "ORDER BY pa.adate, pa.atime, pa.PatientName;";
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(query)) {
+
+            System.out.println(String.format("%-30s%-20s%-15s%-10s%-25s%-20s",
+                    "Patient", "Appointment Date", "Appointment Time",
+                    "Doctor", "Doctor's Department", "Required Equipment"));
+//            System.out.printf("===============================================================================================================%n");
+
+            while (rs.next()) {
+                String patient = rs.getString("Patient");
+                Date appointmentDate = rs.getDate("Appointment Date");
+                Time appointmentTime = rs.getTime("Appointment Time");
+                int doctorEmployeeNumber = rs.getInt("Doctor");
+                String department = rs.getString("Doctor's Department");
+                String equipmentType = rs.getString("Required Equipment");
+
+                System.out.println(String.format("%-30s%-20s%-15s%-10d%-25s%-20s",
+                        patient, appointmentDate.toString(), appointmentTime.toString(),
+                        doctorEmployeeNumber, department, equipmentType));
+            }
+        } catch (SQLException e) {
+            System.out.println("Error fetching patient appointment details: " + e.getMessage());
+        }
     }
 
-    private static void addNewEquipment(Connection conn, Scanner scanner) {
-        // Implementation of adding new equipment
+    private static void scheduleAppointment(Connection conn) {
+        try {
+            // Preparing the CallableStatement for the stored procedure
+            CallableStatement cs = conn.prepareCall("{call ScheduleAppointment(?, ?, ?, ?, ?)}");
+
+            System.out.print("Enter Patient Healthcare Number: ");
+            int phealthcare_no = scanner.nextInt();
+
+            System.out.print("Enter Employee Number: ");
+            int employee_no = scanner.nextInt();
+            scanner.nextLine(); // Consume the newline left-over
+
+            System.out.print("Enter Appointment Date (YYYY-MM-DD): ");
+            String adate = scanner.next();
+
+            System.out.print("Enter Appointment Time (HH:MM): ");
+            String atime = scanner.next();
+            scanner.nextLine(); // Consume the newline left-over
+
+            System.out.print("Enter Equipment Type: ");
+            String equipment_type = scanner.nextLine();
+
+            cs.setInt(1, phealthcare_no);
+            cs.setInt(2, employee_no);
+            cs.setDate(3, Date.valueOf(adate)); // Converts string to SQL date
+            cs.setString(4, atime);
+            cs.setString(5, equipment_type);
+
+            // Execute the stored procedure
+            cs.executeUpdate();
+
+            System.out.println("Appointment scheduled successfully.");
+
+            // Close the CallableStatement
+            cs.close();
+        } catch (SQLException e) {
+            System.out.println("SQL exception occurred: " + e.getMessage());
+        }
     }
 
-    private static void scheduleAppointment(Connection conn, Scanner scanner) {
-        // Implementation of scheduling an appointment
-    }
-
-    private static void cancelAppointment(Connection conn, Scanner scanner) {
-        // Implementation of canceling an appointment
-    }
-
-    private static void updatePatientRecords(Connection conn, Scanner scanner) {
-        // Implementation of updating patient records
+    private static void removeEquipment(Connection conn) {
+        System.out.print("Enter the serial number of the equipment to remove: ");
+        String serialNumber = scanner.next();
+        try {
+            String query = "DELETE FROM equipment WHERE SERIAL_NO = ?";
+            PreparedStatement pstmt = conn.prepareStatement(query);
+            pstmt.setString(1, serialNumber);
+            int rowsAffected = pstmt.executeUpdate();
+            if (rowsAffected > 0) {
+                System.out.println("Equipment with serial number " + serialNumber + " removed successfully.");
+            } else {
+                System.out.println("No equipment found with serial number " + serialNumber);
+            }
+        } catch (SQLException e) {
+            System.out.println("Error removing equipment");
+        }
     }
 }
