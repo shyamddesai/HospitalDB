@@ -144,7 +144,7 @@ public class HospitalDatabaseApp {
                     if (!resultSet.next()) {
                         System.out.println("No prescriptions found for the given patient healthcare number.");
                     } else {
-                        System.out.print(String.format("%-30s%-20s%-10s%-25s%-30s%-30s%-30s",
+                        System.out.println(String.format("%-30s%-20s%-10s%-25s%-30s%-30s%-30s",
                                 "Patient", "Contact Info", "Doctor", "Doctor's Department",
                                 "Prescription", "Pharmacy", "Pharmacy Address"));
 
@@ -278,6 +278,31 @@ public class HospitalDatabaseApp {
         }
     }
 
+    private static void removeEquipment(Connection conn) {
+        while(true) {
+            System.out.print("Enter the serial number of the equipment to remove (or type 0 to go back to the main menu): ");
+            String serialNumber = scanner.next();
+
+            if (serialNumber.equals("0")) {
+                break; // Return to main menu
+            }
+
+            try {
+                String query = "DELETE FROM equipment WHERE SERIAL_NO = ?";
+                PreparedStatement pstmt = conn.prepareStatement(query);
+                pstmt.setString(1, serialNumber);
+                int rowsAffected = pstmt.executeUpdate();
+                if (rowsAffected > 0) {
+                    System.out.println("Equipment with serial number " + serialNumber + " removed successfully.");
+                } else {
+                    System.out.println("No equipment found with serial number " + serialNumber);
+                }
+            } catch (SQLException e) {
+                System.out.println("Error removing equipment");
+            }
+        }
+    }
+
     private static void scheduleAppointment(Connection conn) {
         try {
             CallableStatement cs = conn.prepareCall("{call ScheduleAppointment(?, ?, ?, ?, ?)}");
@@ -285,8 +310,20 @@ public class HospitalDatabaseApp {
             System.out.print("Enter Patient Healthcare Number: ");
             int phealthcare_no = scanner.nextInt();
 
+            // Check if the patient exists
+            if (!entityExists(conn, "patient", "phealthcare_No", phealthcare_no)) {
+                System.out.println("Patient does not exist.");
+                return;
+            }
+
             System.out.print("Enter Employee Number: ");
             int employee_no = scanner.nextInt();
+
+            // Check if the employee exists
+            if (!entityExists(conn, "personnel", "employee_No", employee_no)) {
+                System.out.println("Employee does not exist. Please try again.");
+                return;
+            }
 
             System.out.print("Enter Appointment Date (YYYY-MM-DD): ");
             String adate = scanner.next();
@@ -297,6 +334,12 @@ public class HospitalDatabaseApp {
             System.out.print("Enter Equipment Type: ");
             String equipment_type = scanner.next();
             equipment_type = "Type " + equipment_type;
+
+            // Check if the equipment type exists
+            if (!entityExists(conn, "equipment", "equipment_type", equipment_type)) {
+                System.out.println("Equipment type does not exist. Please try again.");
+                return;
+            }
 
             cs.setInt(1, phealthcare_no);
             cs.setInt(2, employee_no);
@@ -310,6 +353,10 @@ public class HospitalDatabaseApp {
             System.out.println("\nAppointment scheduled successfully!");
 
             cs.close();
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid number format. Please enter valid numbers.");
+        } catch (IllegalArgumentException e) {
+            System.out.println("Invalid date format. Please enter the date in the format YYYY-MM-DD.");
         } catch (SQLException e) {
             if (e.getSQLState().equals("45000")) {
                 System.out.println("Error scheduling appointment: " + e.getMessage());
@@ -319,21 +366,22 @@ public class HospitalDatabaseApp {
         }
     }
 
-    private static void removeEquipment(Connection conn) {
-        System.out.print("Enter the serial number of the equipment to remove: ");
-        String serialNumber = scanner.next();
-        try {
-            String query = "DELETE FROM equipment WHERE SERIAL_NO = ?";
-            PreparedStatement pstmt = conn.prepareStatement(query);
-            pstmt.setString(1, serialNumber);
-            int rowsAffected = pstmt.executeUpdate();
-            if (rowsAffected > 0) {
-                System.out.println("Equipment with serial number " + serialNumber + " removed successfully.");
+    private static boolean entityExists (Connection conn, String tableName, String columnName, Object value){
+        String query = "SELECT 1 FROM " + tableName + " WHERE " + columnName + " = ?";
+        try (PreparedStatement pstmt = conn.prepareStatement(query)) {
+            if (value instanceof Integer) {
+                pstmt.setInt(1, (Integer) value);
+            } else if (value instanceof String) {
+                pstmt.setString(1, (String) value);
             } else {
-                System.out.println("No equipment found with serial number " + serialNumber);
+                return false; // Unsupported type for this utility method
+            }
+            try (ResultSet rs = pstmt.executeQuery()) {
+                return rs.next(); // If there's a result, the entity exists
             }
         } catch (SQLException e) {
-            System.out.println("Error removing equipment");
+            System.out.println("SQL Error: " + e.getMessage());
+            return false;
         }
     }
 }
