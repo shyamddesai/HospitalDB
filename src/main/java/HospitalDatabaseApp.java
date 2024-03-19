@@ -1,4 +1,5 @@
 import java.sql.*;
+import java.util.HashSet;
 import java.util.Scanner;
 
 public class HospitalDatabaseApp {
@@ -75,43 +76,96 @@ public class HospitalDatabaseApp {
     }
 
     private static void viewPatientPrescriptions(Connection conn) {
-        System.out.println("\nFetching patient prescriptions...");
+        HashSet<String> patientIds = new HashSet<>();
 
-        String query = "SELECT patient.pname AS Patient, "
-                + "patient.contact_info AS \"Contact Info\", "
-                + "personnel.employee_No AS Doctor, "
-                + "personnel.department AS \"Doctor's Department\", "
-                + "prescribe.medication AS Prescription, "
-                + "pharmacy.phname AS Pharmacy, "
-                + "pharmacy.phaddress AS \"Pharmacy Address\" "
+        System.out.println("\nFetching patients...");
+
+        String query = "SELECT patient.phealthcare_No AS Patient, "
+                + "patient.pname AS \"Patient Name\", "
+                + "patient.contact_info AS \"Contact Info\" "
                 + "FROM patient "
-                + "JOIN prescribe ON patient.phealthcare_No = prescribe.phealthcare_No "
-                + "JOIN personnel ON prescribe.employee_No = personnel.employee_No "
-                + "JOIN pharmacy ON (prescribe.phname = pharmacy.phname AND prescribe.phaddress = pharmacy.phaddress) "
                 + "ORDER BY patient.pname";
 
         try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
+                ResultSet rs = stmt.executeQuery(query)) {
 
-            System.out.println(String.format("%-30s%-20s%-10s%-25s%-30s%-30s%-30s",
-                    "Patient", "Contact Info", "Doctor", "Doctor's Department",
-                    "Prescription", "Pharmacy", "Pharmacy Address"));
+            System.out.println(String.format("%-30s%-20s%-20s",
+                    "Patient Healthcare No", "Patient Name", "Contact Info"));
 
             while (rs.next()) {
-                String patient = rs.getString("Patient");
+                String patientHealthcareNo = rs.getString("Patient");
+                String patientName = rs.getString("Patient Name");
                 String contactInfo = rs.getString("Contact Info");
-                int doctor = rs.getInt("Doctor");
-                String doctorsDepartment = rs.getString("Doctor's Department");
-                String prescription = rs.getString("Prescription");
-                String pharmacy = rs.getString("Pharmacy");
-                String pharmacyAddress = rs.getString("Pharmacy Address");
 
-                System.out.println(String.format("%-30s%-20s%-10d%-25s%-30s%-30s%-30s",
-                        patient, contactInfo, doctor, doctorsDepartment,
-                        prescription, pharmacy, pharmacyAddress));
+                patientIds.add(patientHealthcareNo); // Add patient healthcare number to the set
+
+                System.out.println(String.format("%-30s%-20s%-20s",
+                        patientHealthcareNo, patientName, contactInfo));
             }
         } catch (SQLException e) {
-            System.out.println("Error fetching patient prescriptions: " + e.getMessage());
+            System.out.println("Error fetching patients: " + e.getMessage());
+        }
+
+        while (true) {
+            System.out.print("\nEnter Patient Healthcare Number (or type 0000 to go back to the main menu): ");
+
+            int pid = scanner.nextInt();
+
+            if (pid == 0000) {
+                break; // Return to main menu
+            }
+
+            String pidStr = String.valueOf(pid);
+            if (!patientIds.contains(pidStr)) {
+                System.out.println("The entered patient healthcare number does not exist in the list. Please try again.");
+                continue; // Ask again
+            }
+
+            System.out.println("Fetching patient prescriptions...");
+
+            String query2 = "SELECT patient.pname AS Patient, "
+                    + "patient.contact_info AS \"Contact Info\", "
+                    + "personnel.employee_No AS Doctor, "
+                    + "personnel.department AS \"Doctor's Department\", "
+                    + "prescribe.medication AS Prescription, "
+                    + "pharmacy.phname AS Pharmacy, "
+                    + "pharmacy.phaddress AS \"Pharmacy Address\" "
+                    + "FROM patient "
+                    + "JOIN prescribe ON patient.phealthcare_No = prescribe.phealthcare_No "
+                    + "JOIN personnel ON prescribe.employee_No = personnel.employee_No "
+                    + "JOIN pharmacy ON (prescribe.phname = pharmacy.phname AND prescribe.phaddress = pharmacy.phaddress) "
+                    + "WHERE patient.phealthcare_No = ? "
+                    + "ORDER BY patient.pname";
+
+            try (PreparedStatement pstmt = conn.prepareStatement(query2)) {
+                pstmt.setInt(1, pid);
+
+                try (ResultSet resultSet = pstmt.executeQuery()) {
+                    if (!resultSet.next()) {
+                        System.out.println("No prescriptions found for the given patient healthcare number.");
+                    } else {
+                        System.out.print(String.format("%-30s%-20s%-10s%-25s%-30s%-30s%-30s",
+                                "Patient", "Contact Info", "Doctor", "Doctor's Department",
+                                "Prescription", "Pharmacy", "Pharmacy Address"));
+
+                        do {
+                            String patient = resultSet.getString("Patient");
+                            String contactInfo = resultSet.getString("Contact Info");
+                            int doctor = resultSet.getInt("Doctor");
+                            String doctorsDepartment = resultSet.getString("Doctor's Department");
+                            String prescription = resultSet.getString("Prescription");
+                            String pharmacy = resultSet.getString("Pharmacy");
+                            String pharmacyAddress = resultSet.getString("Pharmacy Address");
+
+                            System.out.println(String.format("%-30s%-20s%-10d%-25s%-30s%-30s%-30s",
+                                    patient, contactInfo, doctor, doctorsDepartment,
+                                    prescription, pharmacy, pharmacyAddress));
+                        } while (resultSet.next());
+                    }
+                }
+            } catch (SQLException e) {
+                System.out.println("Error fetching patient prescriptions: " + e.getMessage());
+            }
         }
     }
 
@@ -143,7 +197,7 @@ public class HospitalDatabaseApp {
                 + "ORDER BY he.hname, he.equipment_type;";
 
         try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
+                ResultSet rs = stmt.executeQuery(query)) {
 
             System.out.println(String.format("%-30s%-30s%-20s%-35s%-15s",
                     "Hospital", "Hospital Address", "Equipment Type",
@@ -201,12 +255,11 @@ public class HospitalDatabaseApp {
                 + "ORDER BY pa.adate, pa.atime, pa.PatientName;";
 
         try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
+                ResultSet rs = stmt.executeQuery(query)) {
 
             System.out.println(String.format("%-30s%-20s%-15s%-10s%-25s%-20s",
                     "Patient", "Appointment Date", "Appointment Time",
                     "Doctor", "Doctor's Department", "Required Equipment"));
-//            System.out.printf("===============================================================================================================%n");
 
             while (rs.next()) {
                 String patient = rs.getString("Patient");
@@ -227,7 +280,6 @@ public class HospitalDatabaseApp {
 
     private static void scheduleAppointment(Connection conn) {
         try {
-            // Preparing the CallableStatement for the stored procedure
             CallableStatement cs = conn.prepareCall("{call ScheduleAppointment(?, ?, ?, ?, ?)}");
 
             System.out.print("Enter Patient Healthcare Number: ");
@@ -235,33 +287,35 @@ public class HospitalDatabaseApp {
 
             System.out.print("Enter Employee Number: ");
             int employee_no = scanner.nextInt();
-            scanner.nextLine(); // Consume the newline left-over
 
             System.out.print("Enter Appointment Date (YYYY-MM-DD): ");
             String adate = scanner.next();
 
             System.out.print("Enter Appointment Time (HH:MM): ");
             String atime = scanner.next();
-            scanner.nextLine(); // Consume the newline left-over
 
             System.out.print("Enter Equipment Type: ");
-            String equipment_type = scanner.nextLine();
+            String equipment_type = scanner.next();
+            equipment_type = "Type " + equipment_type;
 
             cs.setInt(1, phealthcare_no);
             cs.setInt(2, employee_no);
-            cs.setDate(3, Date.valueOf(adate)); // Converts string to SQL date
+            cs.setDate(3, java.sql.Date.valueOf(adate));
             cs.setString(4, atime);
             cs.setString(5, equipment_type);
 
             // Execute the stored procedure
             cs.executeUpdate();
 
-            System.out.println("Appointment scheduled successfully.");
+            System.out.println("\nAppointment scheduled successfully!");
 
-            // Close the CallableStatement
             cs.close();
         } catch (SQLException e) {
-            System.out.println("SQL exception occurred: " + e.getMessage());
+            if (e.getSQLState().equals("45000")) {
+                System.out.println("Error scheduling appointment: " + e.getMessage());
+            } else {
+                System.out.println("SQL Error: " + e.getMessage());
+            }
         }
     }
 
