@@ -1,10 +1,165 @@
 # Montreal Hospital Management System
-The Montreal Hospital Management System is a database application designed to streamline hospital management by providing functionalities for managing patient records, scheduling appointments, prescribing medication, handling equipment, and tracking hospital resources. This project was developed for COMP421 and demonstrates advanced database management techniques, including stored procedures, indexing, and data visualization.
+The Montreal Hospital Management System is a database application designed to streamline hospital management by providing functionalities for managing patient records, scheduling appointments, prescribing medication, handling equipment, and tracking hospital resources. This project demonstrates advanced database management techniques, including stored procedures, indexing, and data visualization.
 
 ## Key Features
 1. **Appointment Scheduling**: A stored procedure (`ScheduleAppointment`) ensures appointments are conflict-free and schedules available equipment with minimum life expectancy.
 2. **Medication Management**: A stored procedure (`PrescribeAndUpdatePatientRecord`) manages patient prescriptions and updates medical records simultaneously.
 3. **Indexing**: Implements indexes to improve query performance on frequently accessed fields, such as date/time in the Appointment table and life expectancy in the Equipment table.
+
+---
+
+## SQL Queries
+### Query 1: Patient Prescription and Pharmacy Information
+This query retrieves patient details, including contact information, their assigned doctor, prescribed medication, and the pharmacy for filling the prescription.
+
+```sql
+SELECT patient.pname AS Patient,
+       patient.contact_info AS "Contact Info",
+       personnel.employee_No AS Doctor,
+       personnel.department AS "Doctor's Department",
+       prescribe.medication AS Prescription,
+       pharmacy.phname AS Pharmacy,
+       pharmacy.phaddress AS "Pharmacy's Address"
+FROM patient
+JOIN prescribe ON patient.phealthcare_No = prescribe.phealthcare_No
+JOIN personnel ON prescribe.employee_No = personnel.employee_No
+JOIN pharmacy ON (prescribe.phname = pharmacy.phname AND prescribe.phaddress = pharmacy.phaddress)
+ORDER BY pname;
+```
+
+### Query 2: Hospital Resources Overview
+Provides a summary of equipment types and personnel counts for each hospital. Useful for administrators to assess resource levels.
+
+```sql
+WITH HospitalEquipment AS (
+    SELECT h.hname, h.haddress, e.equipment_type,
+           AVG(e.life_expectancy) AS AvgLifeExpectancy
+    FROM equipment e
+    JOIN hospital h ON e.hname = h.hname AND e.haddress = h.haddress
+    GROUP BY h.hname, h.haddress, e.equipment_type
+),
+PersonnelCount AS (
+    SELECT hname, haddress, COUNT(employee_No) AS TotalPersonnel
+    FROM personnel
+    GROUP BY hname, haddress
+)
+SELECT he.hname AS Hospital,
+       he.haddress AS "Hospital Address",
+       he.equipment_type AS "Equipment Type",
+       he.AvgLifeExpectancy AS "Equipment Avg. Life Expectancy",
+       pc.TotalPersonnel AS "Total Staff"
+FROM HospitalEquipment he
+JOIN PersonnelCount pc ON he.hname = pc.hname AND he.haddress = pc.haddress
+ORDER BY he.hname, he.equipment_type;
+```
+
+### Query 3: Patient Appointment Schedule
+Generates a schedule of appointments with details on patient names, dates, times, doctors, and required equipment.
+
+```sql
+WITH AppointmentEquipment AS (
+    SELECT a.phealthcare_No, a.adate, a.atime, c.equipment_type
+    FROM appointment a
+    JOIN conduct c ON a.phealthcare_No = c.phealthcare_No AND a.adate = c.adate AND a.atime = c.atime
+),
+PatientAppointments AS (
+    SELECT pat.pname AS PatientName,
+           a.adate,
+           a.atime,
+           pat.employee_No AS DoctorEmployeeNumber,
+           per.department,
+           ae.equipment_type
+    FROM appointment a
+    JOIN patient pat ON a.phealthcare_No = pat.phealthcare_No
+    JOIN AppointmentEquipment ae ON a.phealthcare_No = ae.phealthcare_No AND a.adate = ae.adate AND a.atime = ae.atime
+    JOIN personnel per ON pat.employee_No = per.employee_No
+)
+SELECT pa.PatientName AS Patient,
+       pa.adate AS "Appointment Date",
+       pa.atime AS "Appointment Time",
+       pa.DoctorEmployeeNumber AS Doctor,
+       pa.department AS "Doctor's Department",
+       pa.equipment_type AS "Required Equipment"
+FROM PatientAppointments pa
+ORDER BY pa.adate, pa.atime, pa.PatientName;
+```
+
+### Query 4: Average Billing by Patient and Insurance
+Calculates the average billing amount for individual patients and their insurance providers, useful for financial assessments.
+
+```sql
+WITH PatientBilling AS (
+    SELECT phealthcare_No, AVG(appointment_fee) AS AverageBilling
+    FROM bill
+    GROUP BY phealthcare_No
+),
+PatientInsurance AS (
+    SELECT p.pname, p.phealthcare_No, p.iname, pb.AverageBilling
+    FROM patient p
+    JOIN PatientBilling pb ON p.phealthcare_No = pb.phealthcare_No
+),
+InsuranceAverageBilling AS (
+    SELECT p.iname AS InsuranceCompany, AVG(b.appointment_fee) AS InsuranceAvgBilling
+    FROM bill b
+    JOIN patient p ON b.phealthcare_No = p.phealthcare_No
+    GROUP BY p.iname
+)
+SELECT pi.pname AS Patient,
+       pi.phealthcare_No AS "Healthcare Number",
+       pi.iname AS Insurer,
+       pi.AverageBilling AS "Patient Avg. Bill",
+       iab.InsuranceAvgBilling AS "Insurer Avg. Bill"
+FROM PatientInsurance pi
+JOIN InsuranceAverageBilling iab ON pi.iname = iab.InsuranceCompany
+ORDER BY pi.iname, pi.phealthcare_No;
+```
+
+## Stored Procedure Example
+
+### ScheduleAppointment
+The `ScheduleAppointment` stored procedure checks for conflicts before scheduling a new appointment. It ensures no overlap with existing appointments and selects equipment with a minimum life expectancy.
+
+```sql
+CREATE PROCEDURE ScheduleAppointment (
+    IN patient_id INT,
+    IN appointment_date DATE,
+    IN appointment_time TIME,
+    IN doctor_id INT,
+    IN equipment_type VARCHAR(50)
+)
+BEGIN
+    DECLARE conflict_count INT;
+
+    -- Check for appointment conflicts
+    SELECT COUNT(*) INTO conflict_count
+    FROM appointment
+    WHERE phealthcare_No = patient_id
+      AND adate = appointment_date
+      AND atime = appointment_time;
+
+    -- If there are conflicts, exit the procedure
+    IF conflict_count > 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Appointment conflict detected.';
+    ELSE
+        -- Schedule appointment with available equipment
+        INSERT INTO appointment (phealthcare_No, adate, atime, employee_No)
+        VALUES (patient_id, appointment_date, appointment_time, doctor_id);
+
+        -- Link the required equipment
+        INSERT INTO conduct (phealthcare_No, adate, atime, equipment_type)
+        SELECT patient_id, appointment_date, appointment_time, equipment_type
+        FROM equipment
+        WHERE equipment_type = equipment_type
+          AND life_expectancy > 1
+        LIMIT 1;
+    END IF;
+END;
+```
+
+This procedure improves scheduling efficiency by checking for conflicts and selecting the necessary equipment based on specified criteria.
+
+---
 
 ## Usage
 ### Application Program
@@ -37,6 +192,8 @@ The Montreal Hospital Management System is a database application designed to st
    java HospitalDatabaseApp
    ```
 
+---
+
 ## Relational Schema
 ![image](https://github.com/user-attachments/assets/b676bd48-7bc1-478e-bb89-820b0252d495)
 
@@ -58,6 +215,8 @@ The Montreal Hospital Management System is a database application designed to st
 - **Prescribe**: Links prescriptions to personnel, pharmacies, and patients.
 - **Donate**: Records donations from patients to hospitals.
 - **Share**: Manages patient record sharing between hospitals.
+
+---
 
 ## Project Highlights
 - **Efficiency**: Uses indexing and optimized queries to ensure fast access to frequently accessed data.
