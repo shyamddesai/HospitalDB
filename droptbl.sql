@@ -1,0 +1,15 @@
+DROP TABLE care;
+DROP TABLE bill;
+DROP TABLE schedule;
+DROP TABLE conduct;
+DROP TABLE prescribe;
+DROP TABLE donate;
+DROP TABLE share_records;
+DROP TABLE patient;
+DROP TABLE equipment;
+DROP TABLE personnel;
+DROP TABLE donor;
+DROP TABLE insurer;
+DROP TABLE hospital;
+DROP TABLE pharmacy;
+DROP TABLE appointment;
